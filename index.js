@@ -156,7 +156,16 @@ app.post('/jobs', verifyToken, async (req, res) => {
   }
 });
 
-
+// Get all jobs
+    app.get('/jobs', async (req, res) => {
+      try {
+        const result = await jobCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        console.error('Error fetching jobs:', error);
+        res.status(500).send({ message: 'Failed to fetch jobs' });
+      }
+    });
 // Fetch user's jobs
 app.get('/jobs', verifyToken, async (req, res) => {
   const email = req.decoded.email;
@@ -171,27 +180,113 @@ app.get('/jobs/available', verifyToken, async (req, res) => {
 });
 
 // Apply to a job
+// app.post('/jobs/apply/:id', verifyToken, async (req, res) => {
+//   const jobId = req.params.id;
+//   const name = req.decoded.name;
+//   const job = await jobCollection.findOne({ _id: new ObjectId(jobId) });
+//   if (!job) {
+//     return res.status(404).send({ message: 'Job not found' });
+//   }
+//   await jobCollection.updateOne(
+//     { _id: new ObjectId(jobId) },
+//     { $push: { applicants: name } }
+//   );
+//   await notificationCollection.insertOne({
+//     recipientEmail: job.email,
+//     message: `Tutor ${tutorEmail} applied to your job "${job.subject} which is created on ${job.postedAt
+// }"`,
+//     createdAt: new Date(),
+//     status: 'unread',
+//   });
+//   res.send({ message: 'Application submitted' });
+// });
+// Apply to a job
+
+// app.post('/jobs/apply/:id', verifyToken, async (req, res) => {
+//   const jobId = req.params.id;
+//   const name = req.decoded.name; // Tutor's name from JWT
+//   const job = await jobCollection.findOne({ _id: new ObjectId(jobId) });
+//   if (!job) {
+//     return res.status(404).send({ message: 'Job not found' });
+//   }
+
+//   // Check if tutor has already applied
+//   if (job.applicants && job.applicants.includes(name)) {
+//     return res.status(400).send({ message: 'You have already applied to this job' });
+//   }
+
+//   await jobCollection.updateOne(
+//     { _id: new ObjectId(jobId) },
+//     { $push: { applicants: name } }
+//   );
+//   await notificationCollection.insertOne({
+//     recipientEmail: job.email,
+//     message: `Tutor ${name} applied to your job "${job.subject}" created on ${new Date(job.postedAt).toLocaleDateString()}`,
+//     createdAt: new Date(),
+//     status: 'unread',
+//   });
+//   res.send({ message: 'Application submitted' });
+// });
+// Apply to a job
 app.post('/jobs/apply/:id', verifyToken, async (req, res) => {
   const jobId = req.params.id;
-  const tutorEmail = req.decoded.email;
+  const email = req.decoded.email; // Tutor's email from JWT
+
+  // Fetch tutor from tutorCollection to get the name
+  const tutor = await tutorCollection.findOne({ email });
+  if (!tutor) {
+    return res.status(404).send({ message: 'Tutor not found' });
+  }
+  const tutorName = tutor.name; // Get tutor's name
+
   const job = await jobCollection.findOne({ _id: new ObjectId(jobId) });
   if (!job) {
     return res.status(404).send({ message: 'Job not found' });
   }
+
+  // Initialize applicants array if undefined
+  if (!job.applicants) {
+    await jobCollection.updateOne(
+      { _id: new ObjectId(jobId) },
+      { $set: { applicants: [] } }
+    );
+    job.applicants = [];
+  }
+
+  // Check if tutor has already applied (handle null/undefined entries)
+  if (job.applicants.some(applicant => applicant && (typeof applicant === 'string' ? applicant === email : applicant.email === email))) {
+    return res.status(400).send({ message: 'You have already applied to this job' });
+  }
+
+  // Add tutor's email and name to applicants array
   await jobCollection.updateOne(
     { _id: new ObjectId(jobId) },
-    { $push: { applicants: tutorEmail } }
+    { $push: { applicants: { email, name: tutorName } } }
   );
+
+  // Create notification with tutor's name
   await notificationCollection.insertOne({
     recipientEmail: job.email,
-    message: `Tutor ${tutorEmail} applied to your job "${job.subject}"`,
+    message: `Tutor ${tutorName} applied to your job "${job.subject}" created on ${new Date(job.postedAt).toLocaleDateString()}`,
     createdAt: new Date(),
     status: 'unread',
   });
+
   res.send({ message: 'Application submitted' });
 });
-
 // Send a message
+// show message
+// New endpoint: Get all messages (public access, no authentication required)
+    app.get('/messages', async (req, res) => {
+      try {
+        const result = await messageCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        console.error('Error fetching messages:', error);
+        res.status(500).send({ message: 'Failed to fetch messages' });
+      }
+    });
+    // send message
 app.post('/send-message', verifyToken, async (req, res) => {
   const { message, email } = req.body;
   if (!message || !email) {
@@ -262,6 +357,116 @@ app.get('/tutors/:tutorId', async (req, res) => {
       res.send(result);
     });
    
+
+     // New route: Update a tutor
+    app.put('/tutors/:tutorId', verifyToken, verifyAdmin, async (req, res) => {
+      const tutorId = req.params.tutorId;
+      const tutorData = req.body;
+
+      // Validate required fields
+      if (!tutorData.name || !tutorData.email) {
+        return res.status(400).send({ message: 'Name and email are required' });
+      }
+
+      try {
+        const existingTutor = await tutorCollection.findOne({ _id: new ObjectId(tutorId) });
+        if (!existingTutor) {
+          return res.status(404).send({ message: 'Tutor not found' });
+        }
+
+        // Check if email is being changed and if new email is already in use
+        if (tutorData.email !== existingTutor.email) {
+          const emailInUse = await tutorCollection.findOne({ email: tutorData.email });
+          if (emailInUse) {
+            return res.status(400).send({ message: 'Email already in use by another tutor' });
+          }
+        }
+
+        const updateData = {
+          name: tutorData.name,
+          email: tutorData.email,
+          subjects: tutorData.subjects || existingTutor.subjects || [],
+          educationalQualifications: tutorData.educationalQualifications || existingTutor.educationalQualifications || '',
+          experience: parseInt(tutorData.experience) || existingTutor.experience || 0,
+          hourlyRate: parseFloat(tutorData.hourlyRate) || existingTutor.hourlyRate || 0,
+          teachingMode: tutorData.teachingMode || existingTutor.teachingMode || '',
+          availability: tutorData.availability || existingTutor.availability || [],
+          bio: tutorData.bio || existingTutor.bio || '',
+          photoURL: tutorData.photoURL || existingTutor.photoURL || '',
+          status: tutorData.status || existingTutor.status || 'active',
+          dateOfBirth: tutorData.dateOfBirth || existingTutor.dateOfBirth || '',
+          gender: tutorData.gender || existingTutor.gender || '',
+          contactNumber: tutorData.contactNumber || existingTutor.contactNumber || '',
+          certifications: tutorData.certifications || existingTutor.certifications || [],
+          institution: tutorData.institution || existingTutor.institution || '',
+          address: tutorData.address || existingTutor.address || {},
+          updatedAt: new Date(),
+        };
+
+        const result = await tutorCollection.updateOne(
+          { _id: new ObjectId(tutorId) },
+          { $set: updateData }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: 'Tutor not found' });
+        }
+
+        // Update related services if email changed
+        if (tutorData.email !== existingTutor.email) {
+          await serviceCollection.updateMany(
+            { tutorEmail: existingTutor.email },
+            { $set: { tutorEmail: tutorData.email, tutorName: tutorData.name } }
+          );
+          await cartsCollection.updateMany(
+            { tutorEmail: existingTutor.email },
+            { $set: { tutorEmail: tutorData.email, tutorName: tutorData.name } }
+          );
+        }
+
+        res.send({ message: 'Tutor updated successfully', modifiedCount: result.modifiedCount });
+      } catch (error) {
+        console.error('Error updating tutor:', error);
+        res.status(500).send({ message: 'Failed to update tutor' });
+      }
+    });
+
+    // New route: Delete a tutor
+    app.delete('/tutors/:tutorId', verifyToken, verifyAdmin, async (req, res) => {
+      const tutorId = req.params.tutorId;
+
+      try {
+        const existingTutor = await tutorCollection.findOne({ _id: new ObjectId(tutorId) });
+        if (!existingTutor) {
+          return res.status(404).send({ message: 'Tutor not found' });
+        }
+
+        // Delete the tutor
+        const result = await tutorCollection.deleteOne({ _id: new ObjectId(tutorId) });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: 'Tutor not found' });
+        }
+
+        // Cascade deletion: Remove related services and cart items
+        await serviceCollection.deleteMany({ tutorEmail: existingTutor.email });
+        await cartsCollection.deleteMany({ tutorEmail: existingTutor.email });
+
+        // Optional: Add audit log for deletion
+        await client.db("LesonPaw-user").collection("auditLogs").insertOne({
+          action: 'delete_tutor',
+          tutorId,
+          tutorEmail: existingTutor.email,
+          adminEmail: req.decoded.email,
+          timestamp: new Date(),
+        });
+
+        res.send({ message: 'Tutor deleted successfully', deletedCount: result.deletedCount });
+      } catch (error) {
+        console.error('Error deleting tutor:', error);
+        res.status(500).send({ message: 'Failed to delete tutor' });
+      }
+    });
 // service
 // Post a service
     app.post('/services', verifyToken, async (req, res) => {
@@ -376,6 +581,8 @@ app.get('/tutors/:tutorId', async (req, res) => {
       const result = await notificationCollection.insertOne(notification);
       res.send(result);
     });
+
+
 // Add new subject to tutor
 app.post('/subjects', verifyToken, async (req, res) => {
   const { name, tutorId } = req.body;
@@ -746,7 +953,16 @@ app.post('/carts', verifyToken, async (req, res) => {
         res.status(500).send({ message: "Internal server error." });
       }
     });
-
+// add for show all the application
+app.get('/teacher-requests', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const result = await teacherApplicationsCollection.find({ status: "pending" }).toArray();
+    res.send(result);
+  } catch (error) {
+    console.error("Error fetching teacher requests:", error);
+    res.status(500).send({ message: "Internal server error." });
+  }
+});
     app.patch('/users/reject-teacher/:email', verifyToken, verifyAdmin, async (req, res) => {
       const email = req.params.email;
       const filter = { email };
@@ -926,7 +1142,16 @@ app.get('/payments/:email', verifyToken, async (req, res) => {
         res.status(500).send({ message: 'Server error while deleting profile' });
       }
     });
-    
+    // new
+    app.get('/students',  async (req, res) => {
+  try {
+       const result = await studentCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Error fetching student:", error);
+        res.status(500).send({ message: "Internal server error." });
+      }
+});
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
