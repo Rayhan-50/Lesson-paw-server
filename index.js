@@ -24,7 +24,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     const userCollection = client.db("LesonPaw-user").collection("users");
     const tutorCollection = client.db("LesonPaw-user").collection("tutors");
@@ -39,6 +39,7 @@ async function run() {
     const cartsCollection = client.db("LesonPaw-user").collection("carts");
     const studentCollection = client.db("LesonPaw-user").collection("students");
     const teacherApplicationsCollection = client.db("LesonPaw-user").collection("teacherApplications");
+    const storyCollection = client.db("LesonPaw-user").collection("stories");
     // JWT related API
     app.post('/jwt', async (req, res) => {
       const user = req.body;
@@ -335,8 +336,10 @@ app.post('/send-message', verifyToken, async (req, res) => {
 // Get a single tutor by ID
 app.get('/tutors/:tutorId', async (req, res) => {
   const tutorId = req.params.tutorId;
+  
   try {
     const tutor = await tutorCollection.findOne({ _id: new ObjectId(tutorId) });
+    
     if (!tutor) {
       return res.status(404).send({ message: 'Tutor not found' });
     }
@@ -346,18 +349,31 @@ app.get('/tutors/:tutorId', async (req, res) => {
     res.status(500).send({ message: 'Failed to fetch tutor' });
   }
 });
+app.get('/tutors/:email', async (req, res) => {
+  const email = req.params.email;
+  const result = await tutorCollection.findOne({ email });
+  if (!result) {
+    return res.status(404).send({ message: 'Tutor not found' });
+  }
+  res.send(result);
+});
 
+//  app.get('/tutors/:email', async (req, res) => {
+//   try {
+//     const email = req.params.email;
+//     const result = await tutorCollection.findOne({ email });
 
-    app.get('/tutors/:email', async (req, res) => {
-      const email = req.params.email;
-      const result = await tutorCollection.findOne({ email });
-      if (!result) {
-        return res.status(404).send({ message: 'Tutor not found' });
-      }
-      res.send(result);
-    });
+//     if (!result) {
+//       return res.status(404).json({ message: 'Tutor not found' });
+//     }
+
+//     res.send(result);
+//   } catch (error) {
+//     console.error('Error fetching tutor:', error);
+//     res.status(500).json({ message: 'Internal server error' });
+//   }
+// });
    
-
      // New route: Update a tutor
     app.put('/tutors/:tutorId', verifyToken, verifyAdmin, async (req, res) => {
       const tutorId = req.params.tutorId;
@@ -545,23 +561,48 @@ app.get('/tutors/:tutorId', async (req, res) => {
     });
     // Delete a service
    // Delete a service
-    app.delete('/services/:id', verifyToken, async (req, res) => {
-      const id = req.params.id;
-      try {
-        const existingService = await serviceCollection.findOne({ _id: new ObjectId(id) });
-        if (!existingService || existingService.tutorEmail !== req.decoded.email) {
-          return res.status(403).send({ message: 'Unauthorized to delete this service' });
-        }
+    // Delete a service
+// Delete a service (validation removed)
+app.delete('/services/:id', verifyToken, async (req, res) => {
+  const id = req.params.id;
+  try {
+    const result = await serviceCollection.deleteOne({ _id: new ObjectId(id) });
+    res.send({ message: 'Service deleted successfully', deletedCount: result.deletedCount });
+  } catch (error) {
+    console.error('Error deleting service:', error);
+    res.status(500).send({ message: 'Failed to delete service', error: error.message });
+  }
+});
 
-        const result = await serviceCollection.deleteOne({ _id: new ObjectId(id) });
+app.get('/services/all', verifyToken, async (req, res) => {
+      try {
+        const query = { status: 'active' };
+        const result = await serviceCollection.find(query).toArray();
         res.send(result);
       } catch (error) {
-        console.error("Error deleting service:", error);
-        res.status(500).send({ message: "Failed to delete service" });
+        console.error("Error fetching services:", error);
+        res.status(500).send({ message: "Failed to fetch services" });
       }
     });
 
-
+    // Delete a service
+    // app.delete('/services/:id', verifyToken, async (req, res) => {
+    //   const id = req.params.id;
+    //   try {
+    //     const existingService = await serviceCollection.findOne({ _id: new ObjectId(id) });
+    //     if (!existingService) {
+    //       return res.status(404).send({ message: 'Service not found' });
+    //     }
+    //     if (existingService.tutorEmail !== req.decoded.email) {
+    //       return res.status(403).send({ message: 'Unauthorized to delete this service' });
+    //     }
+    //     const result = await serviceCollection.deleteOne({ _id: new ObjectId(id) });
+    //     res.send({ message: 'Service deleted successfully', deletedCount: result.deletedCount });
+    //   } catch (error) {
+    //     console.error("Error deleting service:", error);
+    //     res.status(500).send({ message: "Failed to delete service" });
+    //   }
+    // });
 
     
     app.get('/notifications', verifyToken, async (req, res) => {
@@ -728,15 +769,18 @@ app.post('/carts', verifyToken, async (req, res) => {
   if (!tutor) {
     return res.status(404).send({ message: 'Tutor not found' });
   }
+  
   const cartData = {
-    email: cartItem.email,
-    tutorId: cartItem.tutorId,
-    tutorName: tutor.name,
-    tutorEmail: tutor.email,
-    subject: cartItem.subject || tutor.subjects[0] || 'Not specified',
-    location: tutor.location || 'Not specified',
-    createdAt: new Date(),
-  };
+  email: cartItem.email,
+  tutorId: cartItem.tutorId,
+  tutorName: tutor.name,
+  tutorEmail: tutor.email,
+  subject: cartItem.subject || (Array.isArray(tutor.subjects) ? tutor.subjects[0] : 'Not specified'),
+  location: tutor.location || 'Not specified',
+  price: tutor.price || tutor.hourlyRate || 0,
+  createdAt: new Date(),
+};
+
   const result = await cartsCollection.insertOne(cartData);
   res.send(result);
 });
@@ -745,19 +789,64 @@ app.post('/carts', verifyToken, async (req, res) => {
 
    
 
-    app.get('/analytics', verifyToken, verifyAdmin, async (req, res) => {
-      const totalUsers = await userCollection.countDocuments();
-      const totalTutors = await tutorCollection.countDocuments();
-      const totalJobs = await jobCollection.countDocuments();
-      const totalPayments = await paymentCollection.countDocuments();
-      res.send({
-        totalUsers,
-        totalTutors,
-        totalJobs,
-        totalPayments,
-      });
-    });
+    // app.get('/analytics', verifyToken, verifyAdmin, async (req, res) => {
+    //   const totalUsers = await userCollection.countDocuments();
+    //   const totalTutors = await tutorCollection.countDocuments();
+    //   const totalJobs = await jobCollection.countDocuments();
+    //   const total = await paymentCollection.countDocuments();
+    //    const totalStudent = await studentCollection.countDocuments();
 
+    //   res.send({
+    //     totalUsers,
+    //     totalTutors,
+    //     totalJobs,
+       
+    //     totalPayments,
+    //     totalStudent,
+    //   });
+    // });
+// app.get('/analytics', verifyToken, verifyAdmin, async (req, res) => {
+//   const { period = 'monthly' } = req.query;
+//   const match = {};
+
+//   if (period === 'daily') {
+//     match.createdAt = { $gte: new Date(new Date().setDate(new Date().getDate() - 1)) };
+//   } else if (period === 'weekly') {
+//     match.createdAt = { $gte: new Date(new Date().setDate(new Date().getDate() - 7)) };
+//   } else if (period === 'monthly') {
+//     match.createdAt = { $gte: new Date(new Date().setMonth(new Date().getMonth() - 1)) };
+//   }
+
+//   const totalUsers = await userCollection.countDocuments(match);
+//   const totalTutors = await tutorCollection.countDocuments(match);
+//   const totalJobs = await jobCollection.countDocuments(match);
+//   const totalPayments = await paymentCollection.countDocuments(match);
+//   const totalStudent = await studentCollection.countDocuments(match);
+
+//   res.send({
+//     totalUsers,
+//     totalTutors,
+//     totalJobs,
+//     totalPayments,
+//     totalStudent,
+//   });
+// });
+
+app.get('/analytics', verifyToken, verifyAdmin, async (req, res) => {
+  const totalUsers = await userCollection.countDocuments();
+  const totalTutors = await tutorCollection.countDocuments();
+  const totalJobs = await jobCollection.countDocuments();
+  const totalPayments = await paymentCollection.countDocuments();
+  const totalStudent = await studentCollection.countDocuments();
+
+  res.send({
+    totalUsers,
+    totalTutors,
+    totalJobs,
+    totalPayments,
+    totalStudent,
+  });
+});
   
    app.post('/ratings', verifyToken, async (req, res) => {
   const { tutorId, studentEmail, rating, comment } = req.body;
@@ -868,27 +957,7 @@ app.post('/carts', verifyToken, async (req, res) => {
       res.send(result);
     });
 
-    // app.patch('/users/request-teacher/:email', async (req, res) => {
-    //   const email = req.params.email;
-    //   const filter = { email };
-    //   const update = { $set: { status: 'requested' } };
-    //   try {
-    //     const result = await userCollection.updateOne(filter, update);
-    //     if (result.matchedCount > 0) {
-    //       res.status(200).send({ success: true, message: "Request updated successfully.", result });
-    //     } else {
-    //       res.status(404).send({ success: false, message: "User not found." });
-    //     }
-    //   } catch (error) {
-    //     console.error("Error updating user request:", error);
-    //     res.status(500).send({ success: false, message: "Internal server error." });
-    //   }
-    // });
-
-    // app.get('/teacher-requests', verifyToken, verifyAdmin, async (req, res) => {
-    //   const result = await userCollection.find({ status: 'requested' }).toArray();
-    //   res.send(result);
-    // });
+   
     // Submit a teacher application
     app.patch('/users/request-teacher/:email', verifyToken, async (req, res) => {
       const email = req.params.email;
@@ -978,22 +1047,43 @@ app.get('/teacher-requests', verifyToken, verifyAdmin, async (req, res) => {
       res.send(result);
     });
     // payment
-app.post('/create-payment-intent', async (req, res) => {
-  const { price } = req.body;
-  const amount = parseInt(price * 100);
+// app.post('/create-payment-intent', async (req, res) => {
+//   const { price } = req.body;
+//   const amount = parseInt(price * 100);
   
 
-  const paymentIntent = await stripe.paymentIntents.create({
-    amount: amount,
-    currency: 'usd',
-    payment_method_types: ['card']
-  });
+//   const paymentIntent = await stripe.paymentIntents.create({
+//     amount: amount,
+//     currency: 'usd',
+//     payment_method_types: ['card']
+//   });
 
-  res.send({
-    clientSecret: paymentIntent.client_secret
-  })
+//   res.send({
+//     clientSecret: paymentIntent.client_secret
+//   })
+// });
+app.post('/create-payment-intent', async (req, res) => {
+    try {
+        const { price } = req.body;
+        console.log("Received price:", price);
+        const amount = Math.round(price * 100);
+        console.log("Amount in cents:", amount);
+
+        const paymentIntent = await stripe.paymentIntents.create({
+            amount,
+            currency: 'usd',
+            payment_method_types: ['card']
+        });
+
+        console.log("Payment Intent created:", paymentIntent);
+        res.send({
+            clientSecret: paymentIntent.client_secret
+        });
+    } catch (error) {
+        console.error('Error creating payment intent:', error);
+        res.status(500).send({ error: error.message });
+    }
 });
-
 
 
 app.post('/payments', async (req, res) => {
@@ -1152,8 +1242,55 @@ app.get('/payments/:email', verifyToken, async (req, res) => {
         res.status(500).send({ message: "Internal server error." });
       }
 });
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+
+// POST: Add a new story
+    app.post('/stories', verifyToken, async (req, res) => {
+      try {
+        const { quote, name, details, imageURL, status, createdAt } = req.body;
+
+        // Validate required fields
+        if (!quote || !name || !details || !imageURL) {
+          return res.status(400).json({ message: 'All required fields must be provided' });
+        }
+
+        // Create new story
+        const newStory = {
+          quote,
+          name,
+          details,
+          imageURL,
+          status: status || 'pending',
+          createdAt: createdAt ? new Date(createdAt) : new Date(),
+        };
+
+        // Save to database
+        const result = await storyCollection.insertOne(newStory);
+
+        res.status(201).json({
+          insertedId: result.insertedId,
+          message: 'Story added successfully',
+        });
+      } catch (error) {
+        console.error('Error adding story:', error);
+        res.status(500).json({
+          message: 'Failed to add story',
+          error: error.message,
+        });
+      }
+    });
+
+    // GET: Fetch all stories (public access)
+    app.get('/stories', async (req, res) => {
+      try {
+        const stories = await storyCollection.find().toArray();
+        res.send(stories);
+      } catch (error) {
+        console.error('Error fetching stories:', error);
+        res.status(500).send({ message: 'Failed to fetch stories' });
+      }
+    });
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Do not close client if keeping server running
   }
