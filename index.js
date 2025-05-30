@@ -1,16 +1,28 @@
-const express = require('express');
-const cors = require('cors');
-const jwt = require('jsonwebtoken');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-require('dotenv').config();
 
+
+
+const express = require('express');
 const app = express();
+const cors = require('cors');
+const jwt =require('jsonwebtoken');
+require('dotenv').config();
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
 
-// Middleware
+
+// Middleware options
+const corsOptions = {
+  origin: [process.env.CLIENT_ADDRESS, process.env.DEV_CLIENT],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  withCredentials: true,
+};
+// middleware
 app.use(cors());
 app.use(express.json());
 
+
+
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 // MongoDB connection
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.rxvwb.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -40,6 +52,7 @@ async function run() {
     const studentCollection = client.db("LesonPaw-user").collection("students");
     const teacherApplicationsCollection = client.db("LesonPaw-user").collection("teacherApplications");
     const storyCollection = client.db("LesonPaw-user").collection("stories");
+    const blogCollection = client.db("LesonPaw-user").collection("blogs");
     // JWT related API
     app.post('/jwt', async (req, res) => {
       const user = req.body;
@@ -287,6 +300,101 @@ app.post('/jobs/apply/:id', verifyToken, async (req, res) => {
         res.status(500).send({ message: 'Failed to fetch messages' });
       }
     });
+
+    // Backend: Mark a message as read
+app.patch('/messages/:id/read', verifyToken, async (req, res) => {
+  const messageId = req.params.id;
+
+  try {
+    // Validate message ID
+    if (!ObjectId.isValid(messageId)) {
+      return res.status(400).send({ message: 'Invalid message ID' });
+    }
+
+    // Check if message exists
+    const message = await messageCollection.findOne({ _id: new ObjectId(messageId) });
+    if (!message) {
+      return res.status(404).send({ message: 'Message not found' });
+    }
+
+    // Update message status to 'read'
+    const result = await messageCollection.updateOne(
+      { _id: new ObjectId(messageId) },
+      { $set: { status: 'read', updatedAt: new Date() } }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(400).send({ message: 'Message already marked as read or not found' });
+    }
+
+    res.send({ message: 'Message marked as read', modifiedCount: result.modifiedCount });
+  } catch (error) {
+    console.error('Error marking message as read:', error);
+    res.status(500).send({ message: 'Failed to mark message as read' });
+  }
+});
+
+// Backend: Mark a message as unread
+app.patch('/messages/:id/unread', verifyToken, async (req, res) => {
+  const messageId = req.params.id;
+
+  try {
+    // Validate message ID
+    if (!ObjectId.isValid(messageId)) {
+      return res.status(400).send({ message: 'Invalid message ID' });
+    }
+
+    // Check if message exists
+    const message = await messageCollection.findOne({ _id: new ObjectId(messageId) });
+    if (!message) {
+      return res.status(404).send({ message: 'Message not found' });
+    }
+
+    // Update message status to 'unread'
+    const result = await messageCollection.updateOne(
+      { _id: new ObjectId(messageId) },
+      { $set: { status: 'unread', updatedAt: new Date() } }
+    );
+
+    if (result.modifiedCount === 0) {
+      return res.status(400).send({ message: 'Message already marked as unread or not found' });
+    }
+
+    res.send({ message: 'Message marked as unread', modifiedCount: result.modifiedCount });
+  } catch (error) {
+    console.error('Error marking message as unread:', error);
+    res.status(500).send({ message: 'Failed to mark message as unread' });
+  }
+});
+// Backend: Delete a message
+app.delete('/messages/:id', verifyToken, async (req, res) => {
+  const messageId = req.params.id;
+
+  try {
+    // Validate message ID
+    if (!ObjectId.isValid(messageId)) {
+      return res.status(400).send({ message: 'Invalid message ID' });
+    }
+
+    // Check if message exists
+    const message = await messageCollection.findOne({ _id: new ObjectId(messageId) });
+    if (!message) {
+      return res.status(404).send({ message: 'Message not found' });
+    }
+
+    // Delete the message
+    const result = await messageCollection.deleteOne({ _id: new ObjectId(messageId) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).send({ message: 'Message not found' });
+    }
+
+    res.send({ message: 'Message deleted successfully', deletedCount: result.deletedCount });
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    res.status(500).send({ message: 'Failed to delete message' });
+  }
+});
     // send message
 app.post('/send-message', verifyToken, async (req, res) => {
   const { message, email } = req.body;
@@ -1046,22 +1154,7 @@ app.get('/teacher-requests', verifyToken, verifyAdmin, async (req, res) => {
       const result = await userCollection.updateOne({ email }, { $set: update });
       res.send(result);
     });
-    // payment
-// app.post('/create-payment-intent', async (req, res) => {
-//   const { price } = req.body;
-//   const amount = parseInt(price * 100);
-  
-
-//   const paymentIntent = await stripe.paymentIntents.create({
-//     amount: amount,
-//     currency: 'usd',
-//     payment_method_types: ['card']
-//   });
-
-//   res.send({
-//     clientSecret: paymentIntent.client_secret
-//   })
-// });
+   
 app.post('/create-payment-intent', async (req, res) => {
     try {
         const { price } = req.body;
@@ -1101,6 +1194,12 @@ app.post('/payments', async (req, res) => {
 
   res.send({ paymentResult, deleteResult });
 })
+
+
+app.get('/payments', async (req, res) => {
+  const result = await paymentCollection.find().toArray();
+  res.send(result);
+});
 
 
 
@@ -1289,6 +1388,178 @@ app.get('/payments/:email', verifyToken, async (req, res) => {
         res.status(500).send({ message: 'Failed to fetch stories' });
       }
     });
+
+    // DELETE: Delete a story by ID
+app.delete('/stories/:id', verifyToken, async (req, res) => {
+  const storyId = req.params.id;
+
+  try {
+    const result = await storyCollection.deleteOne({ _id: new ObjectId(storyId) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: 'Story not found' });
+    }
+
+    res.json({ message: 'Story deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting story:', err);
+    res.status(500).json({ message: 'Failed to delete story' });
+  }
+});
+// PUT: Update a story by ID
+app.put('/stories/:id', verifyToken, async (req, res) => {
+  const storyId = req.params.id;
+  const { quote, name, details, imageURL, status } = req.body;
+
+  // Validate required fields
+  if (!quote || !name || !details || !imageURL) {
+    return res.status(400).json({ message: 'All required fields must be provided' });
+  }
+
+  try {
+    const updateDoc = {
+      $set: {
+        quote,
+        name,
+        details,
+        imageURL,
+        status: status || 'pending',
+        updatedAt: new Date(),
+      },
+    };
+
+    const result = await storyCollection.updateOne(
+      { _id: new ObjectId(storyId) },
+      updateDoc
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: 'Story not found' });
+    }
+
+    res.json({ message: 'Story updated successfully' });
+  } catch (err) {
+    console.error('Error updating story:', err);
+    res.status(500).json({ message: 'Failed to update story' });
+  }
+});
+
+
+// Backend: Add a new blog
+app.post('/blogs', verifyToken, async (req, res) => {
+  try {
+    const { title, content, excerpt, author, imageURL, category, tags, slug, readTime, languageLevel, featured, status, createdAt } = req.body;
+
+    // Validate required fields
+    if (!title || !content || !excerpt || !author || !imageURL || !category || !languageLevel) {
+      return res.status(400).json({ message: 'All required fields (title, content, excerpt, author, imageURL, category, languageLevel) must be provided' });
+    }
+
+    // Validate tags
+    const validatedTags = Array.isArray(tags) ? tags.filter(tag => typeof tag === 'string' && tag.trim()) : [];
+
+    // Create new blog
+    const newBlog = {
+      title,
+      content,
+      excerpt,
+      author,
+      imageURL,
+      category,
+      tags: validatedTags,
+      slug: slug || title.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, ''), // Fallback slug generation
+      readTime: readTime || '1 min read', // Fallback read time
+      languageLevel,
+      featured: !!featured, // Ensure boolean
+      status: status || 'pending',
+      createdAt: createdAt ? new Date(createdAt) : new Date(),
+    };
+
+    // Save to database
+    const result = await client.db("LesonPaw-user").collection("blogs").insertOne(newBlog);
+
+    res.status(201).json({
+      insertedId: result.insertedId,
+      message: 'Blog added successfully',
+    });
+  } catch (error) {
+    console.error('Error adding blog:', error);
+    res.status(500).json({
+      message: 'Failed to add blog',
+      error: error.message,
+    });
+  }
+});
+
+
+
+// Backend: Update a blog
+app.put('/blogs/:id', verifyToken, async (req, res) => {
+  const blogId = req.params.id;
+  const { title, content, excerpt, author, imageURL, category, tags, slug, readTime, languageLevel, featured, status } = req.body;
+
+  try {
+    if (!ObjectId.isValid(blogId)) {
+      return res.status(400).json({ message: 'Invalid blog ID' });
+    }
+
+    const validatedTags = Array.isArray(tags) ? tags.filter(tag => typeof tag === 'string' && tag.trim()) : [];
+
+    const updateDoc = {
+      $set: {
+        title,
+        content,
+        excerpt,
+        author,
+        imageURL,
+        category,
+        tags: validatedTags,
+        slug: slug || (title ? title.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '') : ''),
+        readTime,
+        languageLevel,
+        featured: !!featured,
+        status,
+        updatedAt: new Date(),
+      },
+    };
+
+    console.log('Updating blog with ID:', blogId);
+    console.log('Update document:', updateDoc);
+
+    const result = await BlogsCollection.updateOne({ _id: new ObjectId(blogId) }, updateDoc);
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: 'Blog not found' });
+    }
+
+    res.json({ message: 'Blog updated successfully' });
+  } catch (error) {
+    console.error('Error updating blog:', error.stack);
+    res.status(500).json({ message: 'Internal server error', error: error.message });
+  }
+});
+// Backend: Delete a blog
+app.delete('/blogs/:id', verifyToken, async (req, res) => {
+  const blogId = req.params.id;
+
+  try {
+    // Validate blog ID
+    if (!ObjectId.isValid(blogId)) {
+      return res.status(400).send({ message: 'Invalid blog ID' });
+    }
+
+    const result = await client.db("LesonPaw-user").collection("blogs").deleteOne({ _id: new ObjectId(blogId) });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: 'Blog not found' });
+    }
+
+    res.json({ message: 'Blog deleted successfully', deletedCount: result.deletedCount });
+  } catch (error) {
+    console.error('Error deleting blog:', error);
+    res.status(500).json({ message: 'Failed to delete blog' });
+  }
+});
     // await client.db("admin").command({ ping: 1 });
     // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
@@ -1307,7 +1578,6 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
   console.log(`LesonPaw is sitting on port ${port}`);
 });
-
 
 
 
