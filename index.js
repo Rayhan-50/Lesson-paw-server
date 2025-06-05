@@ -113,30 +113,89 @@ app.get('/users/profile/:email', async (req, res) => {
   res.json(user);
 });
 
+// app.post('/jobs', verifyToken, async (req, res) => {
+//   const job = req.body;
+//   if (!job.subject || !job.topicsGoals || !job.gradeLevel || !job.sessionsPerWeek || !job.openToNegotiation || !job.email) {
+//     return res.status(400).send({ message: 'Missing required fields' });
+//   }
+
+//   try {
+//     const user = await userCollection.findOne({ email: job.email });
+//     if (!user) {
+//       return res.status(404).send({ message: 'User not found' });
+//     }
+
+//     const jobPostCount = user.jobPostCount || 0;
+//     if (jobPostCount >= 3) {
+//       const paymentExists = await paymentCollection.findOne({
+//         studentEmail: job.email,
+//         paymentType: 'job-post-fee',
+//         status: 'completed',
+//       });
+//       if (!paymentExists) {
+//         return res.status(402).send({ message: 'Payment required: $10 job posting fee after 3 posts' });
+//       }
+//     }
+
+//     const jobData = {
+//       email: job.email,
+//       subject: job.subject,
+//       topicsGoals: job.topicsGoals,
+//       gradeLevel: job.gradeLevel,
+//       modeOfLearning: job.modeOfLearning || 'Not specified',
+//       location: job.location || 'Not specified',
+//       availability: job.availability || 'Not specified',
+//       sessionsPerWeek: job.sessionsPerWeek,
+//       budget: job.budget || 'Not specified',
+//       openToNegotiation: job.openToNegotiation,
+//       startDate: job.startDate || null,
+//       deadline: job.deadline || null,
+//       helpType: job.helpType || [],
+//       additionalNotes: job.additionalNotes || 'None',
+//       postedAt: new Date(),
+//       status: 'pending',
+//     };
+
+//     const result = await jobCollection.insertOne(jobData);
+
+//     await userCollection.updateOne(
+//       { email: job.email },
+//       { $set: { jobPostCount: jobPostCount + 1 } }
+//     );
+
+//     res.status(201).send(result);
+//   } catch (error) {
+//     console.error('Error posting job:', error);
+//     res.status(500).send({ message: 'Failed to post job' });
+//   }
+// });
+// test job post
 app.post('/jobs', verifyToken, async (req, res) => {
   const job = req.body;
-  if (!job.subject || !job.topicsGoals || !job.gradeLevel || !job.sessionsPerWeek || !job.openToNegotiation || !job.email) {
-    return res.status(400).send({ message: 'Missing required fields' });
+
+  // Validate required fields
+  const requiredFields = ['subject', 'topicsGoals', 'gradeLevel', 'sessionsPerWeek', 'openToNegotiation', 'email'];
+  const missingFields = requiredFields.filter(field => !job[field]);
+  if (missingFields.length > 0) {
+    return res.status(400).send({ message: `Missing required fields: ${missingFields.join(', ')}` });
+  }
+
+  // Validate field types
+  if (job.budget && isNaN(parseFloat(job.budget))) {
+    return res.status(400).send({ message: 'Budget must be a valid number' });
+  }
+  if (job.startDate && isNaN(Date.parse(job.startDate))) {
+    return res.status(400).send({ message: 'Start date must be a valid date' });
   }
 
   try {
+    // Verify user exists
     const user = await userCollection.findOne({ email: job.email });
     if (!user) {
       return res.status(404).send({ message: 'User not found' });
     }
 
-    const jobPostCount = user.jobPostCount || 0;
-    if (jobPostCount >= 3) {
-      const paymentExists = await paymentCollection.findOne({
-        studentEmail: job.email,
-        paymentType: 'job-post-fee',
-        status: 'completed',
-      });
-      if (!paymentExists) {
-        return res.status(402).send({ message: 'Payment required: $10 job posting fee after 3 posts' });
-      }
-    }
-
+    // Prepare job data
     const jobData = {
       email: job.email,
       subject: job.subject,
@@ -145,30 +204,27 @@ app.post('/jobs', verifyToken, async (req, res) => {
       modeOfLearning: job.modeOfLearning || 'Not specified',
       location: job.location || 'Not specified',
       availability: job.availability || 'Not specified',
-      sessionsPerWeek: job.sessionsPerWeek,
-      budget: job.budget || 'Not specified',
+      sessionsPerWeek: parseInt(job.sessionsPerWeek),
+      budget: job.budget ? parseFloat(job.budget) : 'Not specified',
       openToNegotiation: job.openToNegotiation,
-      startDate: job.startDate || null,
-      deadline: job.deadline || null,
-      helpType: job.helpType || [],
+      startDate: job.startDate ? new Date(job.startDate) : null,
+      deadline: job.deadline ? new Date(job.deadline) : null,
+      helpType: Array.isArray(job.helpType) ? job.helpType : [],
       additionalNotes: job.additionalNotes || 'None',
       postedAt: new Date(),
       status: 'pending',
+      applicants: [],
     };
 
+    // Insert job
     const result = await jobCollection.insertOne(jobData);
-
-    await userCollection.updateOne(
-      { email: job.email },
-      { $set: { jobPostCount: jobPostCount + 1 } }
-    );
-
-    res.status(201).send(result);
+    res.status(201).send({ ...result, jobId: result.insertedId });
   } catch (error) {
     console.error('Error posting job:', error);
-    res.status(500).send({ message: 'Failed to post job' });
+    res.status(500).send({ message: error.message || 'Failed to post job' });
   }
 });
+
 
 // Get all jobs
     app.get('/jobs', async (req, res) => {
@@ -1195,6 +1251,64 @@ app.post('/payments', async (req, res) => {
   res.send({ paymentResult, deleteResult });
 })
 
+// test
+// app.post('/payments', verifyToken, async (req, res) => {
+//   const payment = req.body;
+//   const paymentData = {
+//     studentEmail: payment.studentEmail,
+//     amount: payment.amount,
+//     paymentType: payment.paymentType || 'default',
+//     transactionId: payment.transactionId,
+//     status: payment.status || 'completed',
+//     createdAt: payment.createdAt ? new Date(payment.createdAt) : new Date(),
+//   };
+
+//   try {
+//     const paymentResult = await paymentCollection.insertOne(paymentData);
+//     res.send({ paymentResult });
+//   } catch (error) {
+//     console.error('Error saving payment:', error);
+//     res.status(500).send({ message: 'Failed to save payment' });
+//   }
+// });
+
+
+// app.post('/payments', verifyToken, async (req, res) => {
+//   const payment = req.body;
+//   const paymentData = {
+//     studentEmail: payment.studentEmail || payment.email,
+//     amount: payment.amount || payment.price,
+//     paymentType: payment.paymentType || 'default',
+//     transactionId: payment.transactionId,
+//     status: payment.status || 'completed',
+//     createdAt: payment.createdAt ? new Date(payment.createdAt) : new Date(),
+//     cartIds: payment.cartIds || [],
+//     menuItemIds: payment.menuItemIds || [],
+//     tutorEmails: payment.tutorEmails || [],
+//     totalTutorEmails: payment.totalTutorEmails || 0,
+//   };
+
+//   try {
+//     const paymentResult = await paymentCollection.insertOne(paymentData);
+
+//     // Delete cart items if cartIds are provided
+//     if (paymentData.cartIds.length > 0) {
+//       const query = {
+//         _id: { $in: paymentData.cartIds.map(id => new ObjectId(id)) },
+//       };
+//       const deleteResult = await cartsCollection.deleteMany(query);
+//       res.send({ paymentResult, deleteResult });
+//     } else {
+//       res.send({ paymentResult });
+//     }
+//   } catch (error) {
+//     console.error('Error saving payment:', error);
+//     res.status(500).send({ message: 'Failed to save payment' });
+//   }
+// });
+
+// test
+
 
 app.get('/payments', async (req, res) => {
   const result = await paymentCollection.find().toArray();
@@ -1492,7 +1606,15 @@ app.post('/blogs', verifyToken, async (req, res) => {
 });
 
 
-
+app.get('/blogs', async (req, res) => {
+  try {
+    const blogs = await client.db("LesonPaw-user").collection("blogs").find().toArray();
+    res.send(blogs);
+  } catch (error) {
+    console.error('Error fetching blogs:', error);
+    res.status(500).send({ message: 'Failed to fetch blogs' });
+  }
+});
 // Backend: Update a blog
 app.put('/blogs/:id', verifyToken, async (req, res) => {
   const blogId = req.params.id;
