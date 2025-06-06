@@ -113,62 +113,7 @@ app.get('/users/profile/:email', async (req, res) => {
   res.json(user);
 });
 
-// app.post('/jobs', verifyToken, async (req, res) => {
-//   const job = req.body;
-//   if (!job.subject || !job.topicsGoals || !job.gradeLevel || !job.sessionsPerWeek || !job.openToNegotiation || !job.email) {
-//     return res.status(400).send({ message: 'Missing required fields' });
-//   }
 
-//   try {
-//     const user = await userCollection.findOne({ email: job.email });
-//     if (!user) {
-//       return res.status(404).send({ message: 'User not found' });
-//     }
-
-//     const jobPostCount = user.jobPostCount || 0;
-//     if (jobPostCount >= 3) {
-//       const paymentExists = await paymentCollection.findOne({
-//         studentEmail: job.email,
-//         paymentType: 'job-post-fee',
-//         status: 'completed',
-//       });
-//       if (!paymentExists) {
-//         return res.status(402).send({ message: 'Payment required: $10 job posting fee after 3 posts' });
-//       }
-//     }
-
-//     const jobData = {
-//       email: job.email,
-//       subject: job.subject,
-//       topicsGoals: job.topicsGoals,
-//       gradeLevel: job.gradeLevel,
-//       modeOfLearning: job.modeOfLearning || 'Not specified',
-//       location: job.location || 'Not specified',
-//       availability: job.availability || 'Not specified',
-//       sessionsPerWeek: job.sessionsPerWeek,
-//       budget: job.budget || 'Not specified',
-//       openToNegotiation: job.openToNegotiation,
-//       startDate: job.startDate || null,
-//       deadline: job.deadline || null,
-//       helpType: job.helpType || [],
-//       additionalNotes: job.additionalNotes || 'None',
-//       postedAt: new Date(),
-//       status: 'pending',
-//     };
-
-//     const result = await jobCollection.insertOne(jobData);
-
-//     await userCollection.updateOne(
-//       { email: job.email },
-//       { $set: { jobPostCount: jobPostCount + 1 } }
-//     );
-
-//     res.status(201).send(result);
-//   } catch (error) {
-//     console.error('Error posting job:', error);
-//     res.status(500).send({ message: 'Failed to post job' });
-//   }
-// });
 // test job post
 app.post('/jobs', verifyToken, async (req, res) => {
   const job = req.body;
@@ -236,13 +181,135 @@ app.post('/jobs', verifyToken, async (req, res) => {
         res.status(500).send({ message: 'Failed to fetch jobs' });
       }
     });
-// Fetch user's jobs
-app.get('/jobs', verifyToken, async (req, res) => {
+
+
+
+
+    // job
+
+
+
+
+// UPDATE job endpoint (fixed)
+app.put('/jobs/:id', verifyToken, async (req, res) => {
+  const jobId = req.params.id;
+  const updatedJob = req.body;
   const email = req.decoded.email;
-  const result = await jobCollection.find({ email }).toArray();
-  res.send(result);
+
+  try {
+    // Validate ID format
+    if (!ObjectId.isValid(jobId)) {
+      return res.status(400).send({ message: 'Invalid job ID' });
+    }
+
+    // Verify job ownership
+    const job = await jobCollection.findOne({ 
+      _id: new ObjectId(jobId), 
+      email 
+    });
+    if (!job) {
+      return res.status(403).send({ message: 'Unauthorized or job not found' });
+    }
+
+    // Required field validation (handles booleans and numbers)
+    const requiredFields = ['subject', 'topicsGoals', 'gradeLevel', 'sessionsPerWeek', 'openToNegotiation'];
+    const missingFields = requiredFields.filter(field => 
+      updatedJob[field] === undefined || 
+      updatedJob[field] === null ||
+      (typeof updatedJob[field] === 'string' && updatedJob[field].trim() === '')
+    );
+
+    if (missingFields.length > 0) {
+      return res.status(400).send({ 
+        message: `Missing required fields: ${missingFields.join(', ')}` 
+      });
+    }
+
+    // Validate data types
+    if (updatedJob.sessionsPerWeek && isNaN(parseInt(updatedJob.sessionsPerWeek))) {
+      return res.status(400).send({ message: 'sessionsPerWeek must be a valid number' });
+    }
+    if (updatedJob.budget && isNaN(parseFloat(updatedJob.budget))) {
+      return res.status(400).send({ message: 'Budget must be a valid number' });
+    }
+    if (updatedJob.startDate && isNaN(Date.parse(updatedJob.startDate))) {
+      return res.status(400).send({ message: 'Start date must be a valid date' });
+    }
+
+    // Allow-list safe fields to update
+    const safeUpdates = {
+      subject: updatedJob.subject,
+      topicsGoals: updatedJob.topicsGoals,
+      gradeLevel: updatedJob.gradeLevel,
+      sessionsPerWeek: parseInt(updatedJob.sessionsPerWeek),
+      openToNegotiation: updatedJob.openToNegotiation,
+      updatedAt: new Date()
+    };
+
+    // Optional fields (only update if provided)
+    if (updatedJob.budget !== undefined) {
+      safeUpdates.budget = parseFloat(updatedJob.budget);
+    }
+    if (updatedJob.startDate !== undefined) {
+      safeUpdates.startDate = updatedJob.startDate 
+        ? new Date(updatedJob.startDate) 
+        : null;
+    }
+    if (updatedJob.additionalNotes !== undefined) {
+      safeUpdates.additionalNotes = updatedJob.additionalNotes;
+    }
+
+    // Perform update
+    const result = await jobCollection.updateOne(
+      { _id: new ObjectId(jobId) },
+      { $set: safeUpdates }
+    );
+
+    if (result.modifiedCount > 0) {
+      res.send({ message: 'Job updated successfully' });
+    } else {
+      res.status(400).send({ message: 'No changes made' });
+    }
+  } catch (error) {
+    console.error('Error updating job:', error);
+    res.status(500).send({ message: 'Failed to update job' });
+  }
 });
 
+// DELETE job endpoint (fixed)
+app.delete('/jobs/:id', verifyToken, async (req, res) => {
+  const jobId = req.params.id;
+  const email = req.decoded.email;
+
+  try {
+    if (!ObjectId.isValid(jobId)) {
+      return res.status(400).send({ message: 'Invalid job ID' });
+    }
+
+    // Verify job ownership before deletion
+    const job = await jobCollection.findOne({ 
+      _id: new ObjectId(jobId), 
+      email 
+    });
+    
+    if (!job) {
+      return res.status(403).send({ message: 'Unauthorized or job not found' });
+    }
+
+    const result = await jobCollection.deleteOne({ 
+      _id: new ObjectId(jobId) 
+    });
+
+    if (result.deletedCount > 0) {
+      res.send({ message: 'Job deleted successfully' });
+    } else {
+      res.status(404).send({ message: 'Job not found' });
+    }
+  } catch (error) {
+    console.error('Error deleting job:', error);
+    res.status(500).send({ message: 'Failed to delete job' });
+  }
+});
 // Fetch available jobs
 app.get('/jobs/available', verifyToken, async (req, res) => {
   const result = await jobCollection.find({ status: 'pending' }).toArray();
