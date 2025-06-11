@@ -1,6 +1,4 @@
 
-
-
 const express = require('express');
 const app = express();
 const cors = require('cors');
@@ -53,6 +51,7 @@ async function run() {
     const teacherApplicationsCollection = client.db("LesonPaw-user").collection("teacherApplications");
     const storyCollection = client.db("LesonPaw-user").collection("stories");
     const blogCollection = client.db("LesonPaw-user").collection("blogs");
+    const confirmationCollection = client.db("LesonPaw-user").collection("confirmations"); // New collection
     // JWT related API
     app.post('/jwt', async (req, res) => {
       const user = req.body;
@@ -86,6 +85,7 @@ async function run() {
       }
       next();
     };
+
 
 
     // Get user job post count
@@ -589,21 +589,7 @@ app.get('/tutors/:email', async (req, res) => {
   res.send(result);
 });
 
-//  app.get('/tutors/:email', async (req, res) => {
-//   try {
-//     const email = req.params.email;
-//     const result = await tutorCollection.findOne({ email });
 
-//     if (!result) {
-//       return res.status(404).json({ message: 'Tutor not found' });
-//     }
-
-//     res.send(result);
-//   } catch (error) {
-//     console.error('Error fetching tutor:', error);
-//     res.status(500).json({ message: 'Internal server error' });
-//   }
-// });
    
      // New route: Update a tutor
     app.put('/tutors/:tutorId', verifyToken, verifyAdmin, async (req, res) => {
@@ -790,9 +776,7 @@ app.get('/tutors/:email', async (req, res) => {
         res.status(500).send({ message: "Failed to update service" });
       }
     });
-    // Delete a service
-   // Delete a service
-    // Delete a service
+   
 // Delete a service (validation removed)
 app.delete('/services/:id', verifyToken, async (req, res) => {
   const id = req.params.id;
@@ -816,25 +800,7 @@ app.get('/services/all', verifyToken, async (req, res) => {
       }
     });
 
-    // Delete a service
-    // app.delete('/services/:id', verifyToken, async (req, res) => {
-    //   const id = req.params.id;
-    //   try {
-    //     const existingService = await serviceCollection.findOne({ _id: new ObjectId(id) });
-    //     if (!existingService) {
-    //       return res.status(404).send({ message: 'Service not found' });
-    //     }
-    //     if (existingService.tutorEmail !== req.decoded.email) {
-    //       return res.status(403).send({ message: 'Unauthorized to delete this service' });
-    //     }
-    //     const result = await serviceCollection.deleteOne({ _id: new ObjectId(id) });
-    //     res.send({ message: 'Service deleted successfully', deletedCount: result.deletedCount });
-    //   } catch (error) {
-    //     console.error("Error deleting service:", error);
-    //     res.status(500).send({ message: "Failed to delete service" });
-    //   }
-    // });
-
+  
     
     app.get('/notifications', verifyToken, async (req, res) => {
       const email = req.decoded.email;
@@ -1016,52 +982,6 @@ app.post('/carts', verifyToken, async (req, res) => {
   res.send(result);
 });
 
-   
-
-   
-
-    // app.get('/analytics', verifyToken, verifyAdmin, async (req, res) => {
-    //   const totalUsers = await userCollection.countDocuments();
-    //   const totalTutors = await tutorCollection.countDocuments();
-    //   const totalJobs = await jobCollection.countDocuments();
-    //   const total = await paymentCollection.countDocuments();
-    //    const totalStudent = await studentCollection.countDocuments();
-
-    //   res.send({
-    //     totalUsers,
-    //     totalTutors,
-    //     totalJobs,
-       
-    //     totalPayments,
-    //     totalStudent,
-    //   });
-    // });
-// app.get('/analytics', verifyToken, verifyAdmin, async (req, res) => {
-//   const { period = 'monthly' } = req.query;
-//   const match = {};
-
-//   if (period === 'daily') {
-//     match.createdAt = { $gte: new Date(new Date().setDate(new Date().getDate() - 1)) };
-//   } else if (period === 'weekly') {
-//     match.createdAt = { $gte: new Date(new Date().setDate(new Date().getDate() - 7)) };
-//   } else if (period === 'monthly') {
-//     match.createdAt = { $gte: new Date(new Date().setMonth(new Date().getMonth() - 1)) };
-//   }
-
-//   const totalUsers = await userCollection.countDocuments(match);
-//   const totalTutors = await tutorCollection.countDocuments(match);
-//   const totalJobs = await jobCollection.countDocuments(match);
-//   const totalPayments = await paymentCollection.countDocuments(match);
-//   const totalStudent = await studentCollection.countDocuments(match);
-
-//   res.send({
-//     totalUsers,
-//     totalTutors,
-//     totalJobs,
-//     totalPayments,
-//     totalStudent,
-//   });
-// });
 
 app.get('/analytics', verifyToken, verifyAdmin, async (req, res) => {
   const totalUsers = await userCollection.countDocuments();
@@ -1392,10 +1312,6 @@ app.get('/payments/:email', verifyToken, async (req, res) => {
   const result = await paymentCollection.find(query).toArray();
   res.send(result);
 })
-
-
-
-
 
 // Student Collection Endpoints
     app.get('/students/:email', verifyToken, async (req, res) => {
@@ -1728,7 +1644,8 @@ app.put('/blogs/:id', verifyToken, async (req, res) => {
   }
 });
 // Backend: Delete a blog
-app.delete('/blogs/:id', verifyToken, async (req, res) => {
+// Backend: Delete a blog
+app.delete('/blogs/:id',  async (req, res) => {
   const blogId = req.params.id;
 
   try {
@@ -1749,6 +1666,97 @@ app.delete('/blogs/:id', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Failed to delete blog' });
   }
 });
+
+// Confirmation Endpoints
+    // POST: Create a new confirmation
+   // POST: Create a new confirmation
+   // POST: Create a new confirmation
+app.post('/confirmations', verifyToken, async (req, res) => {
+  const { email, tutorId, tutorName, confirmedAt } = req.body;
+
+  // Basic validation for required fields
+  if (!email || !tutorId || !tutorName || !confirmedAt) {
+    return res.status(400).send({ message: 'Email, tutorId, tutorName, and confirmedAt are required' });
+  }
+
+  // Ensure the request email matches the token's email
+  if (req.decoded.email !== email) {
+    return res.status(403).send({ message: 'Forbidden: Email mismatch' });
+  }
+
+  const confirmationData = {
+    email,
+    tutorId,
+    tutorName,
+    confirmedAt: new Date(confirmedAt),
+  };
+
+  try {
+    const result = await confirmationCollection.insertOne(confirmationData);
+    res.status(201).send({
+      message: 'Service confirmation saved successfully',
+      insertedId: result.insertedId,
+    });
+  } catch (error) {
+    console.error('Error saving confirmation:', error);
+    res.status(500).send({ message: 'Failed to save confirmation' });
+  }
+});
+
+  
+// GET: Fetch all confirmations (with authentication)
+app.get('/confirmations', verifyToken, async (req, res) => {
+  console.log('GET /confirmations: Fetching all confirmations');
+
+  try {
+    const confirmations = await confirmationCollection.find({}).toArray();
+    console.log('Found confirmations:', confirmations);
+    res.send(confirmations);
+  } catch (error) {
+    console.error('Error fetching confirmations:', error);
+    res.status(500).send({ message: 'Failed to fetch confirmations' });
+  }
+});
+
+
+
+// DELETE: Delete a confirmation
+app.delete('/confirmations/:id', verifyToken, async (req, res) => {
+  const { id } = req.params;
+  const email = req.decoded.email; // Log email for debugging
+  console.log('DELETE /confirmations/:id:', { id, email, token: req.headers.authorization });
+
+  // Validate ObjectId
+  if (!ObjectId.isValid(id)) {
+    console.log('Invalid ObjectId:', id);
+    return res.status(400).send({ message: 'Invalid confirmation ID' });
+  }
+
+  try {
+    // Check document existence
+    const document = await confirmationCollection.findOne({ _id: new ObjectId(id) });
+    console.log('Found document:', document);
+
+    if (!document) {
+      console.log('No document found for ID:', id);
+      return res.status(404).send({ message: 'Confirmation not found' });
+    }
+
+    // Delete the confirmation (no email check)
+    const result = await confirmationCollection.deleteOne({ _id: new ObjectId(id) });
+    console.log('Delete result:', result);
+
+    if (result.deletedCount === 0) {
+      console.log('No confirmation deleted for ID:', id);
+      return res.status(404).send({ message: 'Confirmation not found' });
+    }
+
+    res.send({ message: 'Confirmation deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting confirmation:', error);
+    res.status(500).send({ message: 'Failed to delete confirmation', error: error.message });
+  }
+});
     // await client.db("admin").command({ ping: 1 });
     // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
@@ -1767,9 +1775,4 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
   console.log(`LesonPaw is sitting on port ${port}`);
 });
-
-
-
-
-
 
